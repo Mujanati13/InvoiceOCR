@@ -5,7 +5,7 @@ services:
       args:
         VITE_API_BASE_URL: http://localhost:6001
     ports:
-      - "6000:80"
+      - "6002:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -18,7 +18,7 @@ services:
       FLASK_ENV: production
       FLASK_DEBUG: "0"
       SECRET_KEY: ${SECRET_KEY:-change-me}
-      CORS_ORIGINS: http://localhost:6000
+      CORS_ORIGINS: http://localhost:6002
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${POSTGRES_DB:-invoices_ocr}
