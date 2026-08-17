@@ -11,7 +11,7 @@ Flask + React application for extracting scanned invoices, receipts, contracts, 
 docker compose up --build -d
 ```
 
-3. Open the dashboard at `http://localhost:6002`. The Flask API is available at `http://localhost:6001`, and PostgreSQL is exposed at `localhost:5437`. Port `6000` is blocked as unsafe by Chromium-based browsers.
+3. Open the dashboard at `http://localhost:6002`. The frontend proxies API requests through the same address, so it also works when accessed from another machine or public IP. The Flask API is available directly at `http://localhost:6001`, and PostgreSQL is exposed at `localhost:5437`. Port `6000` is blocked as unsafe by Chromium-based browsers.
 
 The Docker stack includes Redis and a Celery worker. Uploaded PDFs and generated exports remain in the local `uploads/original` and `exports` folders, while database data is stored in the named `postgres_data` volume. Stop it with `docker compose down`; add `-v` only when you intentionally want to remove the database data.
 

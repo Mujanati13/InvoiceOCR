@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 const API_PAGE_SIZE = 100;
 const INVOICE_TABLE_PAGE_SIZE = 8;
 const POSITION_TABLE_PAGE_SIZE = 5;
