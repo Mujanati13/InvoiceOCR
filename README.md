@@ -2,6 +2,19 @@
 
 Flask + React application for extracting scanned invoices, receipts, contracts, commission settlements, and credit notes into PostgreSQL using OpenAI vision extraction. Background extraction is handled with Celery and Redis.
 
+## Docker Setup
+
+1. Copy `.env.example` to `.env` and set `OPENAI_API_KEY` (also replace the default database and secret passwords for non-local use).
+2. Start the complete stack:
+
+```bash
+docker compose up --build -d
+```
+
+3. Open the dashboard at `http://localhost:6000`. The Flask API is available at `http://localhost:6001`, and PostgreSQL is exposed at `localhost:5437`.
+
+The Docker stack includes Redis and a Celery worker. Uploaded PDFs and generated exports remain in the local `uploads/original` and `exports` folders, while database data is stored in the named `postgres_data` volume. Stop it with `docker compose down`; add `-v` only when you intentionally want to remove the database data.
+
 ## Local Setup
 
 ### 1. Requirements
