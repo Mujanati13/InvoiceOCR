@@ -23,7 +23,14 @@ const PROCESSING_POLL_MS = 2000;
 const PROCESSING_MAX_POLLS = 90;
 
 function createUploadSlots() {
-  return Array.from({ length: MAX_UPLOAD_FILES }, () => ({ id: crypto.randomUUID(), file: null }));
+  return Array.from({ length: MAX_UPLOAD_FILES }, () => ({ id: createSlotId(), file: null }));
+}
+
+function createSlotId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 const invoiceColumns = [
