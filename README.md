@@ -4,7 +4,7 @@ Flask + React application for extracting scanned invoices, receipts, contracts, 
 
 ## Docker Setup
 
-1. Copy `.env.example` to `.env` and set `OPENAI_API_KEY` (also replace the default database and secret passwords for non-local use).
+1. Copy `.env.example` to `.env` and set `OPENAI_API_KEY`, `APP_PASSWORD`, and a strong `SECRET_KEY` (also replace the default database password for non-local use).
 2. Start the complete stack:
 
 ```bash
@@ -94,6 +94,10 @@ Edit `.env` and set at least these values:
 OPENAI_API_KEY=sk-your-openai-api-key
 OPENAI_MODEL=gpt-5.6-sol
 OPENAI_FILE_DETAIL=high
+
+APP_USERNAME=admin
+APP_PASSWORD=replace-with-a-strong-password
+SECRET_KEY=replace-with-a-long-random-value
 
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
@@ -197,6 +201,13 @@ If Flask is not running on `http://localhost:5000`, create `frontend/.env`:
 VITE_API_BASE_URL=http://localhost:6001
 ```
 
+The local login defaults are controlled by the Flask backend:
+
+```ini
+APP_USERNAME=admin
+APP_PASSWORD=replace-with-a-strong-password
+```
+
 Then restart the frontend dev server.
 
 ### 8. Test The Local App
@@ -230,9 +241,30 @@ curl "http://localhost:5000/api/invoice-pos?page=1&page_size=25"
 - PostgreSQL: stores clients, documents, invoices, invoice positions, extraction runs, and validation results.
 - Redis: message broker used by Celery.
 - Celery worker: performs background OCR extraction and database insertion.
-- React frontend: dashboard UI for upload, review, validation display, reset, and Excel export.
+- React frontend: dashboard UI for login, upload, review, validation display, reset, language switching, and Excel export.
 
 ## API
+
+Login and create a Flask session cookie:
+
+```bash
+curl -c cookies.txt \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-app-password"}' \
+  http://localhost:5000/api/auth/login
+```
+
+Use `-b cookies.txt` for protected API calls when testing with `curl`:
+
+```bash
+curl -b cookies.txt "http://localhost:5000/api/invoices?page=1&page_size=25"
+```
+
+Logout:
+
+```bash
+curl -b cookies.txt -X POST http://localhost:5000/api/auth/logout
+```
 
 Upload a scanned PDF and start background processing:
 
@@ -299,7 +331,7 @@ Export the combined Lexware-oriented review/import file:
 curl -o lexware_invoice_review.xlsx http://localhost:5000/api/exports/lexware_invoice_review.xlsx
 ```
 
-The combined export contains each invoice row followed by its nested invoice position header and position rows. It includes `invoice_id` and `invoice_number` so repeated extractions of the same client/invoice number can still be distinguished.
+The combined export contains each invoice row followed by its nested invoice position header and position rows. It includes German headers such as `Rechnungs-ID` and `Rechnungsnummer` so repeated extractions of the same client/invoice number can still be distinguished.
 
 View validation results:
 
@@ -328,6 +360,8 @@ Configure allowed origins with `CORS_ORIGINS` in `.env`.
 Recommended React flow:
 
 ```text
+POST /api/auth/login
+-> browser receives Flask session cookie
 POST /api/documents
 -> read document.id
 -> poll GET /api/documents/:id until document.processing_status is completed or failed
