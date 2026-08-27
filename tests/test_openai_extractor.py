@@ -16,11 +16,19 @@ class OpenAIExtractorTests(unittest.TestCase):
         )
         self.assertEqual(
             schema["properties"]["invoice"]["required"],
-            ["invoice_number", "invoice_date", "invoice_type", "gesamt_netto", "tva", "gesamtbetrag"],
+            [
+                "invoice_number",
+                "invoice_date",
+                "invoice_type",
+                "gesamt_netto",
+                "tva",
+                "gesamtbetrag",
+                "calculated_fields",
+            ],
         )
         self.assertEqual(
             schema["properties"]["invoice_pos"]["items"]["required"],
-            ["gesamt_netto", "gesamtpreis"],
+            ["description", "gesamt_netto", "tva", "gesamtpreis", "calculated_fields"],
         )
 
 

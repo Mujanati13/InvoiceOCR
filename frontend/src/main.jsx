@@ -4,7 +4,6 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronDown,
-  FileSpreadsheet,
   Filter,
   Info,
   Loader2,
@@ -74,7 +73,7 @@ const COPY = {
     positionTableTitle: "Invoice POS",
     showTables: "Show tables",
     hideTables: "Hide tables",
-    exportExcel: "Export combined invoice review Excel",
+    exportExcel: "Excel-Export",
     rows: "rows",
     noRows: "No rows to display",
     loadingData: "Loading data",
@@ -152,7 +151,7 @@ const COPY = {
     positionTableTitle: "Rechnungspositionen",
     showTables: "Tabellen anzeigen",
     hideTables: "Tabellen ausblenden",
-    exportExcel: "Kombinierte Rechnungspruefung als Excel exportieren",
+    exportExcel: "Excel-Export",
     rows: "Zeilen",
     noRows: "Keine Zeilen vorhanden",
     loadingData: "Daten werden geladen",
@@ -189,7 +188,7 @@ function createUploadSlots() {
 const invoiceColumns = [
   { key: "id", label: "Rechnungs-ID", align: "center", width: 140, minWidth: 115 },
   { key: "invoice_number", label: "Rechnungsnummer", width: 190, minWidth: 150 },
-  { key: "document_file_name", label: "Dateiname", width: 470, minWidth: 220 },
+  { key: "document_file_name", label: "PDF-Datei", type: "document_link", width: 420, minWidth: 220 },
   { key: "client_name", label: "Kunde/Lieferant", width: 560, minWidth: 240 },
   { key: "client_street", label: "Strasse", width: 190, minWidth: 140 },
   { key: "client_house_number", label: "Hausnummer", width: 150, minWidth: 120 },
@@ -205,11 +204,12 @@ const invoiceColumns = [
 
 const posColumns = [
   { key: "invoice_id", label: "Rechnungs-ID", align: "center", width: 140, minWidth: 115 },
-  { key: "invoice_number", label: "Rechnungsnummer", width: 190, minWidth: 150 },
+  { key: "description", label: "ArtikelNr. / Beschreibung", width: 360, minWidth: 220 },
   { key: "client_name", label: "Kunde/Lieferant", width: 430, minWidth: 220 },
   { key: "invoice_date", label: "Belegdatum", width: 150, minWidth: 125 },
   { key: "pos_number", label: "Position", align: "center", width: 130, minWidth: 100 },
   { key: "gesamt_netto", label: "Positions-Netto", align: "right", type: "amount", width: 170, minWidth: 135 },
+  { key: "tva", label: "Positions-USt", align: "right", type: "amount", width: 155, minWidth: 125 },
   { key: "gesamtpreis", label: "Positions-Brutto", align: "right", type: "amount", width: 180, minWidth: 145 },
 ];
 
@@ -232,7 +232,6 @@ function App() {
   const [processingMessage, setProcessingMessage] = useState("");
   const [processingIds, setProcessingIds] = useState([]);
   const [dragActiveSlotId, setDragActiveSlotId] = useState("");
-  const [tablesExpanded, setTablesExpanded] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [validationDetailsByInvoiceId, setValidationDetailsByInvoiceId] = useState({});
@@ -260,7 +259,6 @@ function App() {
     return positions.filter((position) => String(position.client_id) === selectedClientId);
   }, [positions, selectedClientId]);
 
-  const exportAllowed = selectedClientId === "all" || clients.length <= 1;
   const failedInvoices = filteredInvoices.filter((invoice) => invoice.has_validation_errors).length;
   const selectedFiles = uploadSlots.map((slot) => slot.file).filter(Boolean);
   const uploadDisabled = selectedFiles.length === 0 || uploading || processingIds.length > 0;
@@ -576,6 +574,14 @@ function App() {
     }
   }
 
+  function exportPathForSelectedClient() {
+    const basePath = "/api/exports/lexware_invoice_review.xlsx";
+    if (selectedClientId === "all") {
+      return basePath;
+    }
+    return `${basePath}?client_id=${encodeURIComponent(selectedClientId)}`;
+  }
+
   async function loadValidationDetails(invoiceId) {
     if (!invoiceId) {
       return;
@@ -628,7 +634,6 @@ function App() {
       setSelectedClientId("all");
       setInvoicePage(1);
       setPositionPage(1);
-      setTablesExpanded(false);
       setResetModalOpen(false);
       setNotice(t.deleteSuccess);
     } catch (err) {
@@ -699,11 +704,8 @@ function App() {
   return (
     <main className="app-shell">
       <section className="page-header">
-        <div>
-          <h1>
-            <span>HEDSOFT</span> - {t.appTitle.replace("HEDSOFT - ", "")}
-          </h1>
-          <p>{t.appSubtitle}</p>
+        <div className="header-brand-row">
+          <BrandLogo />
         </div>
         <div className="header-actions">
           <LanguageSwitch language={language} onChange={setLanguage} />
@@ -711,6 +713,13 @@ function App() {
             {t.logout}
           </button>
         </div>
+      </section>
+
+      <section className="hero-copy">
+        <h1>
+          Invoice OCR <span>Extraction</span>
+        </h1>
+        <p>{t.appSubtitle}</p>
       </section>
 
       {(error || notice) && (
@@ -817,19 +826,9 @@ function App() {
       )}
 
       {hasExtractedData && (
-      <section className={tablesExpanded ? "hierarchy-panel expanded" : "hierarchy-panel"}>
+      <section className="hierarchy-panel">
         <div className="hierarchy-header">
           <div className="hierarchy-level client-level">
-            <button
-              className="client-disclosure"
-              type="button"
-              aria-expanded={tablesExpanded}
-              aria-label={tablesExpanded ? t.hideTables : t.showTables}
-              onClick={() => setTablesExpanded((expanded) => !expanded)}
-              title={tablesExpanded ? t.hideTables : t.showTables}
-            >
-              <ChevronDown size={19} className={tablesExpanded ? "disclosure-icon open" : "disclosure-icon"} />
-            </button>
             <div className="client-filter">
               <div className="select-wrap">
                 <Filter size={16} className="select-filter-icon" />
@@ -857,37 +856,35 @@ function App() {
           </div>
         </div>
 
-        <div className={tablesExpanded ? "tables-collapse open" : "tables-collapse"} aria-hidden={!tablesExpanded}>
-          <div className="tables-collapse-inner">
-            <DataSection
-              title={t.invoiceTableTitle}
-              rows={filteredInvoices}
-              columns={invoiceColumns}
-              loading={loading}
-              exportVisible={exportAllowed}
-              onExport={() => downloadExport("/api/exports/lexware_invoice_review.xlsx")}
-              exportTitle={t.exportExcel}
-              page={invoicePage}
-              onPageChange={setInvoicePage}
-              pageSize={INVOICE_TABLE_PAGE_SIZE}
-              validationDetailsByInvoiceId={validationDetailsByInvoiceId}
-              onLoadValidationDetails={loadValidationDetails}
-              copy={t}
-            />
+        <div className="tables-stack">
+          <DataSection
+            title={t.invoiceTableTitle}
+            rows={filteredInvoices}
+            columns={invoiceColumns}
+            loading={loading}
+            exportVisible={filteredInvoices.length > 0}
+            onExport={() => downloadExport(exportPathForSelectedClient())}
+            exportTitle={t.exportExcel}
+            page={invoicePage}
+            onPageChange={setInvoicePage}
+            pageSize={INVOICE_TABLE_PAGE_SIZE}
+            validationDetailsByInvoiceId={validationDetailsByInvoiceId}
+            onLoadValidationDetails={loadValidationDetails}
+            copy={t}
+          />
 
-            <DataSection
-              title={t.positionTableTitle}
-              rows={filteredPositions}
-              columns={posColumns}
-              loading={loading}
-              exportVisible={false}
-              page={positionPage}
-              onPageChange={setPositionPage}
-              pageSize={POSITION_TABLE_PAGE_SIZE}
-              compact
-              copy={t}
-            />
-          </div>
+          <DataSection
+            title={t.positionTableTitle}
+            rows={filteredPositions}
+            columns={posColumns}
+            loading={loading}
+            exportVisible={false}
+            page={positionPage}
+            onPageChange={setPositionPage}
+            pageSize={POSITION_TABLE_PAGE_SIZE}
+            compact
+            copy={t}
+          />
         </div>
       </section>
       )}
@@ -957,7 +954,7 @@ function LoginPage({ copy, language, onLanguageChange, values, error, onChange, 
     <main className="login-shell">
       <section className="login-card">
         <div className="login-topbar">
-          <span className="brand-mark">HEDSOFT</span>
+          <BrandLogo />
           <LanguageSwitch language={language} onChange={onLanguageChange} />
         </div>
         <div className="login-copy">
@@ -994,6 +991,16 @@ function LoginPage({ copy, language, onLanguageChange, values, error, onChange, 
         </form>
       </section>
     </main>
+  );
+}
+
+function BrandLogo() {
+  return (
+    <div className="brand-logo" aria-label="HEDSOFT IT">
+      <span className="brand-hed">HED</span>
+      <span className="brand-soft">SOFT</span>
+      <span className="brand-it">IT</span>
+    </div>
   );
 }
 
@@ -1100,7 +1107,11 @@ function DataSection({
               title={`Export ${exportTitle || title} Excel`}
               aria-label={`Export ${exportTitle || title} Excel`}
             >
-              <FileSpreadsheet size={18} />
+              <span className="excel-mark" aria-hidden="true">
+                <span className="excel-sheet" />
+                <span className="excel-tile">X</span>
+              </span>
+              <span>{exportTitle || "Excel-Export"}</span>
             </button>
           )}
         </div>
@@ -1242,6 +1253,13 @@ function formatCell(value, column, row = {}) {
   if (value === null || value === undefined || value === "") {
     return "";
   }
+  if (column.type === "document_link") {
+    return (
+      <a className="document-link" href={`${API_BASE_URL}/api/documents/${row.document_id}/file`} target="_blank" rel="noreferrer">
+        {displayPdfFileName(value)}
+      </a>
+    );
+  }
   if (column.type === "amount") {
     return Number(value).toLocaleString("de-DE", {
       minimumFractionDigits: 2,
@@ -1255,6 +1273,11 @@ function formatCell(value, column, row = {}) {
     }
   }
   return String(value);
+}
+
+function displayPdfFileName(value) {
+  const fileName = String(value || "");
+  return fileName.replace(/^[0-9a-f]{32}_/i, "");
 }
 
 function ValidationIssuesCell({ count, details, invoiceId, onLoad, copy }) {

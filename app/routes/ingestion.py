@@ -1,10 +1,13 @@
-from flask import Blueprint, current_app, jsonify, request
+from pathlib import Path
+
+from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.datastructures import FileStorage
+from werkzeug.exceptions import NotFound
 
 from app.db import get_conn
 from app.services.file_storage import allowed_file, save_upload
 from app.services.jobs import get_document_job_status, start_document_processing
-from app.services.repositories import create_document, decimal_to_float
+from app.services.repositories import create_document, decimal_to_float, get_document as fetch_document
 from app.services.workflow import get_document_result
 
 ingestion_bp = Blueprint("ingestion", __name__)
@@ -105,6 +108,31 @@ def get_document(document_id: int):
 @ingestion_bp.get("/documents/<int:document_id>/debug")
 def get_document_debug(document_id: int):
     return jsonify(get_document_result(document_id, include_debug=True))
+
+
+@ingestion_bp.get("/documents/<int:document_id>/file")
+def view_document_file(document_id: int):
+    with get_conn() as conn:
+        document = fetch_document(conn, document_id)
+    if not document:
+        raise NotFound("Document not found")
+
+    file_path = Path(document["file_path"]).resolve()
+    upload_root = current_app.config["UPLOAD_FOLDER"].resolve()
+    try:
+        file_path.relative_to(upload_root)
+    except ValueError as exc:
+        raise NotFound("Document file not found") from exc
+
+    if not file_path.exists():
+        raise NotFound("Document file not found")
+
+    return send_file(
+        file_path,
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=document["file_name"],
+    )
 
 
 def _create_document_from_upload(file: FileStorage) -> dict:

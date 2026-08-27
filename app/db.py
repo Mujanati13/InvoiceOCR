@@ -68,6 +68,18 @@ def _schema_exists(conn: psycopg.Connection) -> bool:
         "extraction_runs",
         "validation_results",
     )
+    required_columns = {
+        "clients": {
+            "street",
+            "house_number",
+            "postal_code",
+            "city",
+            "name_address_fingerprint",
+        },
+        "documents": {"processing_status", "error_message"},
+        "invoices": {"calculated_fields"},
+        "invoice_pos": {"description", "gesamt_netto", "tva", "calculated_fields"},
+    }
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -77,7 +89,24 @@ def _schema_exists(conn: psycopg.Connection) -> bool:
             """,
             (list(required_tables),),
         )
-        return int(cur.fetchone()["existing_count"]) == len(required_tables)
+        if int(cur.fetchone()["existing_count"]) != len(required_tables):
+            return False
+
+        for table_name, column_names in required_columns.items():
+            cur.execute(
+                """
+                SELECT COUNT(*) AS existing_count
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = %s
+                  AND column_name = ANY(%s::text[])
+                """,
+                (table_name, list(column_names)),
+            )
+            if int(cur.fetchone()["existing_count"]) != len(column_names):
+                return False
+
+        return True
 
 
 def ensure_schema(conn: psycopg.Connection) -> None:
@@ -153,8 +182,12 @@ def ensure_schema(conn: psycopg.Connection) -> None:
                 invoice_type TEXT,
                 gesamt_netto NUMERIC(14, 2),
                 tva NUMERIC(14, 2),
-                gesamtbetrag NUMERIC(14, 2)
+                gesamtbetrag NUMERIC(14, 2),
+                calculated_fields JSONB NOT NULL DEFAULT '[]'::jsonb
             );
+
+            ALTER TABLE invoices
+            ADD COLUMN IF NOT EXISTS calculated_fields JSONB NOT NULL DEFAULT '[]'::jsonb;
 
             ALTER TABLE invoices
             DROP CONSTRAINT IF EXISTS invoices_client_id_invoice_number_key;
@@ -166,13 +199,25 @@ def ensure_schema(conn: psycopg.Connection) -> None:
                 id BIGSERIAL PRIMARY KEY,
                 invoice_id BIGINT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
                 pos_number INTEGER NOT NULL,
+                description TEXT,
                 gesamt_netto NUMERIC(14, 2),
+                tva NUMERIC(14, 2),
                 gesamtpreis NUMERIC(14, 2),
+                calculated_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
                 UNIQUE (invoice_id, pos_number)
             );
 
             ALTER TABLE invoice_pos
+            ADD COLUMN IF NOT EXISTS description TEXT;
+
+            ALTER TABLE invoice_pos
             ADD COLUMN IF NOT EXISTS gesamt_netto NUMERIC(14, 2);
+
+            ALTER TABLE invoice_pos
+            ADD COLUMN IF NOT EXISTS tva NUMERIC(14, 2);
+
+            ALTER TABLE invoice_pos
+            ADD COLUMN IF NOT EXISTS calculated_fields JSONB NOT NULL DEFAULT '[]'::jsonb;
 
             CREATE TABLE IF NOT EXISTS extraction_runs (
                 id BIGSERIAL PRIMARY KEY,

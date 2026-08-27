@@ -144,9 +144,9 @@ def create_invoice(conn: Connection, client_id: int, document_id: int, invoice: 
             """
             INSERT INTO invoices (
                 client_id, document_id, invoice_number, invoice_date, invoice_type,
-                gesamt_netto, tva, gesamtbetrag
+                gesamt_netto, tva, gesamtbetrag, calculated_fields
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
             RETURNING *
             """,
             (
@@ -158,6 +158,7 @@ def create_invoice(conn: Connection, client_id: int, document_id: int, invoice: 
                 invoice["gesamt_netto"],
                 invoice["tva"],
                 invoice["gesamtbetrag"],
+                json.dumps(invoice.get("calculated_fields") or []),
             ),
         )
         return cur.fetchone()
@@ -170,11 +171,21 @@ def replace_invoice_positions(conn: Connection, invoice_id: int, positions: list
         for pos in positions:
             cur.execute(
                 """
-                INSERT INTO invoice_pos (invoice_id, pos_number, gesamt_netto, gesamtpreis)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO invoice_pos (
+                    invoice_id, pos_number, description, gesamt_netto, tva, gesamtpreis, calculated_fields
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
                 RETURNING *
                 """,
-                (invoice_id, pos["pos_number"], pos["gesamt_netto"], pos["gesamtpreis"]),
+                (
+                    invoice_id,
+                    pos["pos_number"],
+                    pos["description"],
+                    pos["gesamt_netto"],
+                    pos["tva"],
+                    pos["gesamtpreis"],
+                    json.dumps(pos.get("calculated_fields") or []),
+                ),
             )
             inserted.append(cur.fetchone())
         return inserted

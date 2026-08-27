@@ -48,6 +48,13 @@ OPENAI_RESPONSE_FORMAT: dict[str, Any] = {
                     "gesamt_netto": {"type": ["number", "string", "null"]},
                     "tva": {"type": ["number", "string", "null"]},
                     "gesamtbetrag": {"type": ["number", "string", "null"]},
+                    "calculated_fields": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["gesamt_netto", "tva", "gesamtbetrag"],
+                        },
+                    },
                 },
                 "required": [
                     "invoice_number",
@@ -56,6 +63,7 @@ OPENAI_RESPONSE_FORMAT: dict[str, Any] = {
                     "gesamt_netto",
                     "tva",
                     "gesamtbetrag",
+                    "calculated_fields",
                 ],
             },
             "invoice_pos": {
@@ -64,10 +72,19 @@ OPENAI_RESPONSE_FORMAT: dict[str, Any] = {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
+                        "description": {"type": ["string", "null"]},
                         "gesamt_netto": {"type": ["number", "string", "null"]},
+                        "tva": {"type": ["number", "string", "null"]},
                         "gesamtpreis": {"type": ["number", "string", "null"]},
+                        "calculated_fields": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "enum": ["gesamt_netto", "tva", "gesamtpreis"],
+                            },
+                        },
                     },
-                    "required": ["gesamt_netto", "gesamtpreis"],
+                    "required": ["description", "gesamt_netto", "tva", "gesamtpreis", "calculated_fields"],
                 },
             },
         },
@@ -102,21 +119,27 @@ General Field rules:
 
 - invoice.gesamtbetrag: extract the final gross total/payable/settlement amount when it is visible or clearly stated.
 
-- Do not calculate or derive invoice.gesamt_netto, invoice.tva, or invoice.gesamtbetrag from other totals unless explicitly instructed. Arithmetic may be used only to determine whether otherwise-unlabeled line totals correspond to a visible invoice-level net or gross total.
+- invoice.calculated_fields: list only the invoice amount field names that you calculated instead of directly reading. Use [] when no invoice amount field was calculated.
+
+- If exactly two invoice total amounts are visible or clearly stated, calculate the missing third invoice total:
+  gross = net + VAT, VAT = gross - net, net = gross - VAT.
+  Add the calculated field name to invoice.calculated_fields.
 
 - invoice_pos: extract one object for each visible invoice position or line item that has a reliable line/position total. Preserve the visual order. Do not invent, merge, or split positions unless the document structure clearly requires it. Do not treat subtotal, tax-summary, or final-total rows as invoice positions unless explicitly instructed.
+
+- invoice_pos[].description: extract the item/article number and/or line-item description associated with the position amount. Prefer article number plus description when both are visible, for example "12345 - Diesel fuel". If no article number exists, use the item description. If neither is visible or reliable, return null.
 
 
 Rules for deciding whether a position amount is net or gross, in priority order:
 
 1. If the column or row is explicitly labeled Netto/net/net amount:
    - store the amount in invoice_pos[].gesamt_netto
-   - set invoice_pos[].gesamtpreis to null unless a separate gross amount is explicitly shown.
+   - set invoice_pos[].gesamtpreis to null unless a separate gross amount is explicitly shown or can be calculated from a visible/applicable VAT amount or rate.
 
 2. If the column or row is explicitly labeled Brutto/gross/gross amount,
    or clearly indicates that VAT/tax is included:
    - store the amount in invoice_pos[].gesamtpreis
-   - set invoice_pos[].gesamt_netto to null unless a separate net amount is explicitly shown.
+   - set invoice_pos[].gesamt_netto to null unless a separate net amount is explicitly shown or can be calculated from a visible/applicable VAT amount or rate.
 
    A label such as Gesamtpreis, Total, Amount, Betrag, or line total alone
    does not prove that the amount is gross. Determine net/gross from the
@@ -125,12 +148,20 @@ Rules for deciding whether a position amount is net or gross, in priority order:
 3. If both net and gross amounts are explicitly shown for the same position:
    - populate both fields with their corresponding values.
 
+4. invoice_pos[].tva is the VAT/tax amount for that specific position, not the VAT rate. Extract it when visible. If a position shows a VAT rate or tax code and either net or gross is visible, calculate the missing VAT amount and any missing net/gross amount using that rate or tax code.
 
-4. Never copy or derive one position amount from the other using VAT.
-   Never put the same visible amount into both invoice_pos[].gesamt_netto
+   If positions do not show their own VAT amount/rate, but the invoice totals/tax summary clearly show one shared VAT rate applied to the whole invoice, apply that same VAT rate to every position:
+   - when position net is visible, calculate position VAT and position gross.
+   - when position gross is visible, calculate position net and position VAT.
+   Add every calculated position field name to invoice_pos[].calculated_fields.
+   If multiple VAT rates exist and a position has no visible rate/code, do not guess.
+
+5. invoice_pos[].calculated_fields: list only the position amount field names that you calculated instead of directly reading. Use [] when no position amount field was calculated.
+
+6. Never put the same visible amount into both invoice_pos[].gesamt_netto
    and invoice_pos[].gesamtpreis merely because only one value is available.
-   Populate both only when separate net and gross values for that position
-   are explicitly visible or clearly identified in the document.
+   Populate both only when separate net/gross values are explicitly visible,
+   or when the missing value can be calculated from a visible/applicable VAT amount or rate.
 
 Number rules:
 - Return numbers as plain decimals without currency symbols.
