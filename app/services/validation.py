@@ -25,6 +25,14 @@ def build_validation_results(
     _add_null_check(results, document_id, invoice_id, "null_gesamtbetrag", "invoice.gesamtbetrag", invoice["gesamtbetrag"])
 
     for pos in positions:
+        _add_null_check(
+            results,
+            document_id,
+            invoice_id,
+            f"null_pos_description_{pos['pos_number']}",
+            f"invoice_pos[{pos['pos_number']}].description",
+            pos.get("description"),
+        )
         _add_result(
             results,
             document_id,
@@ -32,7 +40,11 @@ def build_validation_results(
             f"pos_amount_present_{pos['pos_number']}",
             pos["gesamt_netto"] is not None or pos["gesamtpreis"] is not None,
             f"invoice_pos[{pos['pos_number']}] has gesamt_netto or gesamtpreis",
-            f"net={_to_display_text(pos['gesamt_netto'])}, gross={_to_display_text(pos['gesamtpreis'])}",
+            (
+                f"net={_to_display_text(pos.get('gesamt_netto'))}, "
+                f"tva={_to_display_text(pos.get('tva'))}, "
+                f"gross={_to_display_text(pos.get('gesamtpreis'))}"
+            ),
         )
 
     required_missing = [
@@ -88,8 +100,9 @@ def build_validation_results(
     )
 
     all_amounts = [invoice["gesamt_netto"], invoice["tva"], invoice["gesamtbetrag"]]
-    all_amounts.extend(pos["gesamt_netto"] for pos in positions)
-    all_amounts.extend(pos["gesamtpreis"] for pos in positions)
+    all_amounts.extend(pos.get("gesamt_netto") for pos in positions)
+    all_amounts.extend(pos.get("tva") for pos in positions)
+    all_amounts.extend(pos.get("gesamtpreis") for pos in positions)
     _add_result(
         results,
         document_id,
@@ -157,6 +170,44 @@ def build_validation_results(
             "pos_net_sum_matches_invoice_net",
             True,
             "no complete POS net sum available",
+            "not applicable",
+        )
+
+    for pos in positions:
+        pos_net = pos.get("gesamt_netto")
+        pos_tax = pos.get("tva")
+        pos_gross = pos.get("gesamtpreis")
+        if pos_net is not None and pos_tax is not None and pos_gross is not None:
+            _add_result(
+                results,
+                document_id,
+                invoice_id,
+                f"pos_net_plus_tax_equals_gross_{pos['pos_number']}",
+                abs((pos_net + pos_tax) - pos_gross) <= TOLERANCE,
+                _to_text(pos_gross),
+                _to_text(pos_net + pos_tax),
+            )
+
+    non_null_pos_taxes = [pos.get("tva") for pos in positions if pos.get("tva") is not None]
+    if positions and len(non_null_pos_taxes) == len(positions) and tax is not None:
+        pos_tax_sum = sum(non_null_pos_taxes, Decimal("0.00"))
+        _add_result(
+            results,
+            document_id,
+            invoice_id,
+            "pos_tax_sum_matches_invoice_tax",
+            abs(pos_tax_sum - tax) <= TOLERANCE,
+            _to_text(tax),
+            _to_text(pos_tax_sum),
+        )
+    else:
+        _add_result(
+            results,
+            document_id,
+            invoice_id,
+            "pos_tax_sum_matches_invoice_tax",
+            True,
+            "no complete POS tax sum available",
             "not applicable",
         )
 

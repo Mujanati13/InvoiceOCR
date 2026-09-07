@@ -251,6 +251,7 @@ Login and create a Flask session cookie:
 curl -c cookies.txt \
   -H "Content-Type: application/json" \
   -d '{"username":"admin","password":"your-app-password"}' \
+
   http://localhost:5000/api/auth/login
 ```
 

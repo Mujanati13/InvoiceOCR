@@ -1,4 +1,4 @@
-from flask import Blueprint, send_file
+from flask import Blueprint, request, send_file
 
 from app.services.exporter import export_invoice_review_to_excel
 
@@ -7,7 +7,8 @@ exports_bp = Blueprint("exports", __name__)
 
 @exports_bp.get("/exports/lexware_invoice_review.xlsx")
 def export_lexware_invoice_review():
-    return _send_workbook(export_invoice_review_to_excel(), "lexware_invoice_review.xlsx")
+    client_id = request.args.get("client_id", type=int)
+    return _send_workbook(export_invoice_review_to_excel(client_id=client_id), "lexware_invoice_review.xlsx")
 
 
 def _send_workbook(workbook, download_name: str):

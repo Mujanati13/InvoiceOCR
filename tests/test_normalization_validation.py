@@ -48,17 +48,122 @@ class NormalizationTests(unittest.TestCase):
                     "tva": "19,00",
                     "gesamtbetrag": "119,00",
                 },
-                "invoice_pos": [{"gesamt_netto": "100,00", "gesamtpreis": "119,00"}],
+                "invoice_pos": [{"description": "Consulting", "gesamt_netto": "100,00", "gesamtpreis": "119,00"}],
             },
             VALID_TYPES,
         )
 
         self.assertEqual(normalized["invoice_pos"][0]["gesamt_netto"], Decimal("100.00"))
+        self.assertEqual(normalized["invoice_pos"][0]["description"], "Consulting")
+        self.assertEqual(normalized["invoice_pos"][0]["tva"], Decimal("19.00"))
         self.assertEqual(normalized["invoice_pos"][0]["gesamtpreis"], Decimal("119.00"))
+        self.assertEqual(normalized["invoice_pos"][0]["calculated_fields"], ["tva"])
         self.assertEqual(normalized["client"]["street"], "Mainstr.")
         self.assertEqual(normalized["client"]["house_number"], "10")
         self.assertEqual(normalized["client"]["postal_code"], "60386")
         self.assertEqual(normalized["client"]["city"], "Frankfurt")
+
+    def test_missing_invoice_and_position_amounts_are_calculated_from_two_known_values(self):
+        normalized = normalize_extraction(
+            {
+                "client": {"name": "ACME GmbH"},
+                "invoice": {
+                    "invoice_number": "R-101",
+                    "invoice_date": "2026-01-01",
+                    "invoice_type": "invoice",
+                    "gesamt_netto": "100,00",
+                    "tva": "19,00",
+                    "gesamtbetrag": None,
+                    "calculated_fields": [],
+                },
+                "invoice_pos": [
+                    {
+                        "description": "Service fee",
+                        "gesamt_netto": "50,00",
+                        "tva": None,
+                        "gesamtpreis": "59,50",
+                        "calculated_fields": [],
+                    }
+                ],
+            },
+            VALID_TYPES,
+        )
+
+        self.assertEqual(normalized["invoice"]["gesamtbetrag"], Decimal("119.00"))
+        self.assertEqual(normalized["invoice"]["calculated_fields"], ["gesamtbetrag"])
+        self.assertEqual(normalized["invoice_pos"][0]["tva"], Decimal("9.50"))
+        self.assertEqual(normalized["invoice_pos"][0]["calculated_fields"], ["tva"])
+
+    def test_position_tax_and_gross_are_inferred_from_shared_invoice_tax_rate(self):
+        normalized = normalize_extraction(
+            {
+                "client": {"name": "ACME GmbH"},
+                "invoice": {
+                    "invoice_number": "R-102",
+                    "invoice_date": "2026-01-01",
+                    "invoice_type": "invoice",
+                    "gesamt_netto": "100,00",
+                    "tva": "19,00",
+                    "gesamtbetrag": "119,00",
+                    "calculated_fields": [],
+                },
+                "invoice_pos": [
+                    {
+                        "description": "Item 1",
+                        "gesamt_netto": "40,00",
+                        "tva": None,
+                        "gesamtpreis": None,
+                        "calculated_fields": [],
+                    },
+                    {
+                        "description": "Item 2",
+                        "gesamt_netto": "60,00",
+                        "tva": None,
+                        "gesamtpreis": None,
+                        "calculated_fields": [],
+                    },
+                ],
+            },
+            VALID_TYPES,
+        )
+
+        self.assertEqual(normalized["invoice_pos"][0]["tva"], Decimal("7.60"))
+        self.assertEqual(normalized["invoice_pos"][0]["gesamtpreis"], Decimal("47.60"))
+        self.assertEqual(normalized["invoice_pos"][0]["calculated_fields"], ["tva", "gesamtpreis"])
+        self.assertEqual(normalized["invoice_pos"][1]["tva"], Decimal("11.40"))
+        self.assertEqual(normalized["invoice_pos"][1]["gesamtpreis"], Decimal("71.40"))
+        self.assertEqual(normalized["invoice_pos"][1]["calculated_fields"], ["tva", "gesamtpreis"])
+
+    def test_position_net_and_tax_are_inferred_from_shared_invoice_tax_rate(self):
+        normalized = normalize_extraction(
+            {
+                "client": {"name": "ACME GmbH"},
+                "invoice": {
+                    "invoice_number": "R-103",
+                    "invoice_date": "2026-01-01",
+                    "invoice_type": "invoice",
+                    "gesamt_netto": "100,00",
+                    "tva": "19,00",
+                    "gesamtbetrag": "119,00",
+                    "calculated_fields": [],
+                },
+                "invoice_pos": [
+                    {
+                        "description": "Gross item",
+                        "gesamt_netto": None,
+                        "tva": None,
+                        "gesamtpreis": "59,50",
+                        "calculated_fields": [],
+                    },
+                ],
+            },
+            VALID_TYPES,
+        )
+
+        self.assertEqual(normalized["invoice_pos"][0]["gesamt_netto"], Decimal("50.00"))
+        self.assertEqual(normalized["invoice_pos"][0]["tva"], Decimal("9.50"))
+        self.assertEqual(normalized["invoice_pos"][0]["gesamtpreis"], Decimal("59.50"))
+        self.assertEqual(normalized["invoice_pos"][0]["calculated_fields"], ["gesamt_netto", "tva"])
 
 
 class ValidationTests(unittest.TestCase):
@@ -74,8 +179,18 @@ class ValidationTests(unittest.TestCase):
                 "gesamtbetrag": Decimal("100.00"),
             },
             "invoice_pos": [
-                {"pos_number": 1, "gesamt_netto": Decimal("40.00"), "gesamtpreis": Decimal("40.00")},
-                {"pos_number": 2, "gesamt_netto": Decimal("60.00"), "gesamtpreis": Decimal("60.00")},
+                {
+                    "pos_number": 1,
+                    "description": "Item 1",
+                    "gesamt_netto": Decimal("40.00"),
+                    "gesamtpreis": Decimal("40.00"),
+                },
+                {
+                    "pos_number": 2,
+                    "description": "Item 2",
+                    "gesamt_netto": Decimal("60.00"),
+                    "gesamtpreis": Decimal("60.00"),
+                },
             ],
         }
 
@@ -107,7 +222,7 @@ class ValidationTests(unittest.TestCase):
                 "tva": Decimal("0.00"),
                 "gesamtbetrag": Decimal("100.00"),
             },
-            "invoice_pos": [{"pos_number": 1, "gesamt_netto": None, "gesamtpreis": None}],
+            "invoice_pos": [{"pos_number": 1, "description": "Item 1", "gesamt_netto": None, "gesamtpreis": None}],
         }
 
         results = build_validation_results(
@@ -123,7 +238,7 @@ class ValidationTests(unittest.TestCase):
         self.assertNotIn("null_tva", checks)
         self.assertFalse(checks["pos_amount_present_1"]["passed"])
         self.assertNotIn("tva_requires_net_and_gross", checks)
-        self.assertEqual(checks["amounts_are_valid_decimals"]["actual_value"], "null, 0.00, 100.00, null, null")
+        self.assertEqual(checks["amounts_are_valid_decimals"]["actual_value"], "null, 0.00, 100.00, null, null, null")
 
     def test_missing_net_and_tax_is_valid_when_gross_exists(self):
         normalized = {
@@ -166,8 +281,8 @@ class ValidationTests(unittest.TestCase):
                 "gesamtbetrag": Decimal("38.39"),
             },
             "invoice_pos": [
-                {"pos_number": 1, "gesamt_netto": None, "gesamtpreis": Decimal("10.00")},
-                {"pos_number": 2, "gesamt_netto": None, "gesamtpreis": Decimal("28.39")},
+                {"pos_number": 1, "description": "Item 1", "gesamt_netto": None, "gesamtpreis": Decimal("10.00")},
+                {"pos_number": 2, "description": "Item 2", "gesamt_netto": None, "gesamtpreis": Decimal("28.39")},
             ],
         }
 
@@ -195,8 +310,8 @@ class ValidationTests(unittest.TestCase):
                 "gesamtbetrag": Decimal("119.00"),
             },
             "invoice_pos": [
-                {"pos_number": 1, "gesamt_netto": Decimal("45.00"), "gesamtpreis": None},
-                {"pos_number": 2, "gesamt_netto": Decimal("55.00"), "gesamtpreis": None},
+                {"pos_number": 1, "description": "Item 1", "gesamt_netto": Decimal("45.00"), "gesamtpreis": None},
+                {"pos_number": 2, "description": "Item 2", "gesamt_netto": Decimal("55.00"), "gesamtpreis": None},
             ],
         }
 

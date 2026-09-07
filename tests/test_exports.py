@@ -25,6 +25,7 @@ class ExportQueryTests(unittest.TestCase):
                 "Brutto": "119.00",
                 "Validierungsstatus": "ok",
                 "Validierungsfehler": 0,
+                "_calculated_fields": [],
             },
             {
                 "Rechnungs-ID": 2,
@@ -42,17 +43,20 @@ class ExportQueryTests(unittest.TestCase):
                 "Brutto": "38.39",
                 "Validierungsstatus": "ok",
                 "Validierungsfehler": 0,
+                "_calculated_fields": ["tva"],
             }
         ]
         positions = [
             {
                 "Rechnungs-ID": 1,
-                "Rechnungsnummer": "R-100",
+                "ArtikelNr. / Beschreibung": "Consulting service",
                 "Kunde/Lieferant": "ACME GmbH",
                 "Belegdatum": "2026-08-01",
                 "Position": 1,
                 "Positions-Netto": "100.00",
+                "Positions-USt": "19.00",
                 "Positions-Brutto": "119.00",
+                "_calculated_fields": ["tva"],
             }
         ]
 
@@ -74,20 +78,35 @@ class ExportQueryTests(unittest.TestCase):
         self.assertEqual(worksheet["G2"].value, "60386")
         self.assertEqual(worksheet["H2"].value, "Frankfurt")
         self.assertEqual(worksheet["B3"].value, "Rechnungs-ID")
-        self.assertEqual(worksheet["C3"].value, "Rechnungsnummer")
+        self.assertEqual(worksheet["C3"].value, "ArtikelNr. / Beschreibung")
         self.assertEqual(worksheet["F3"].value, "Position")
+        self.assertEqual(worksheet["H3"].value, "Positions-USt")
         self.assertEqual(worksheet["B4"].value, 1)
+        self.assertEqual(worksheet["C4"].value, "Consulting service")
         self.assertEqual(worksheet["F4"].value, 1)
+        self.assertEqual(worksheet["H4"].fill.fgColor.rgb, "009DC3E6")
         self.assertEqual(worksheet["A5"].value, 2)
         self.assertEqual(worksheet["B5"].value, "R-200")
         self.assertEqual(worksheet["A2"].fill.fgColor.rgb, "00FFFF00")
+        self.assertEqual(worksheet["L5"].fill.fgColor.rgb, "009DC3E6")
         self.assertEqual(worksheet["A5"].fill.fgColor.rgb, "00FFFF00")
+
+    def test_combined_invoice_review_export_can_filter_by_client(self):
+        with patch("app.services.exporter.get_conn", return_value=FakeConnection([[], []])) as get_conn_mock:
+            export_invoice_review_to_excel(client_id=42)
+
+        connection = get_conn_mock.return_value
+        self.assertEqual(connection.calls[0][1], (42,))
+        self.assertIn("WHERE i.client_id = %s", connection.calls[0][0])
+        self.assertEqual(connection.calls[1][1], (42,))
+        self.assertIn("WHERE i.client_id = %s", connection.calls[1][0])
 
 
 class FakeConnection:
     def __init__(self, results):
         self.results = results
         self.index = 0
+        self.calls = []
 
     def __enter__(self):
         return self
@@ -95,7 +114,8 @@ class FakeConnection:
     def __exit__(self, exc_type, exc_value, traceback):
         return False
 
-    def execute(self, query):
+    def execute(self, query, params=()):
+        self.calls.append((query, params))
         result = self.results[self.index]
         self.index += 1
         return FakeCursor(result)

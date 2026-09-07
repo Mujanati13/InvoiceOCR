@@ -44,6 +44,7 @@ def list_invoices():
                 i.gesamt_netto,
                 i.tva,
                 i.gesamtbetrag,
+                i.calculated_fields,
                 COALESCE(v.total_count, 0) AS validation_total,
                 COALESCE(v.passed_count, 0) AS validation_passed,
                 COALESCE(v.failed_count, 0) AS validation_failed,
@@ -103,12 +104,14 @@ def list_invoice_pos():
                 p.id,
                 p.invoice_id,
                 i.client_id,
-                i.invoice_number,
+                p.description,
                 c.name_original AS client_name,
                 i.invoice_date,
                 p.pos_number,
                 p.gesamt_netto,
-                p.gesamtpreis
+                p.tva,
+                p.gesamtpreis,
+                p.calculated_fields
             FROM invoice_pos p
             JOIN invoices i ON i.id = p.invoice_id
             JOIN clients c ON c.id = i.client_id

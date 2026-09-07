@@ -1,5 +1,5 @@
-from decimal import Decimal
 from datetime import date, datetime
+from decimal import Decimal
 from io import BytesIO
 from typing import Any
 
@@ -30,19 +30,35 @@ INVOICE_REVIEW_COLUMNS = [
 
 INVOICE_POS_REVIEW_COLUMNS = [
     "Rechnungs-ID",
-    "Rechnungsnummer",
+    "ArtikelNr. / Beschreibung",
     "Kunde/Lieferant",
     "Belegdatum",
     "Position",
     "Positions-Netto",
+    "Positions-USt",
     "Positions-Brutto",
 ]
 
+INVOICE_CALCULATED_COLUMN_BY_FIELD = {
+    "gesamt_netto": "Netto",
+    "tva": "USt",
+    "gesamtbetrag": "Brutto",
+}
 
-def export_invoice_review_to_excel() -> BytesIO:
+POSITION_CALCULATED_COLUMN_BY_FIELD = {
+    "gesamt_netto": "Positions-Netto",
+    "tva": "Positions-USt",
+    "gesamtpreis": "Positions-Brutto",
+}
+
+
+def export_invoice_review_to_excel(client_id: int | None = None) -> BytesIO:
+    invoice_query, invoice_params = _invoice_review_query(client_id)
+    pos_query, pos_params = _invoice_review_pos_query(client_id)
+
     with get_conn() as conn:
-        invoice_rows = conn.execute(_invoice_review_query()).fetchall()
-        pos_rows = conn.execute(_invoice_review_pos_query()).fetchall()
+        invoice_rows = conn.execute(invoice_query, invoice_params).fetchall()
+        pos_rows = conn.execute(pos_query, pos_params).fetchall()
 
     positions_by_invoice_id: dict[int, list[dict[str, Any]]] = {}
     for pos in pos_rows:
@@ -58,6 +74,7 @@ def export_invoice_review_to_excel() -> BytesIO:
     header_fill = PatternFill("solid", fgColor="F7F7F7")
     invoice_row_fill = PatternFill("solid", fgColor="FFFF00")
     pos_fill = PatternFill("solid", fgColor="F7F7F7")
+    calculated_fill = PatternFill("solid", fgColor="9DC3E6")
     thick_side = Side(style="medium", color="000000")
     thin_side = Side(style="thin", color="D9D9D9")
     header_border = Border(top=thick_side, right=thick_side, bottom=thick_side, left=thick_side)
@@ -91,6 +108,15 @@ def export_invoice_review_to_excel() -> BytesIO:
         )
         for column_index in (1, 11, 12, 13, 15):
             worksheet.cell(row=current_row, column=column_index).alignment = right_alignment
+        _apply_calculated_fill(
+            worksheet,
+            current_row,
+            1,
+            INVOICE_REVIEW_COLUMNS,
+            invoice.get("_calculated_fields"),
+            INVOICE_CALCULATED_COLUMN_BY_FIELD,
+            calculated_fill,
+        )
         current_row += 1
 
         positions = positions_by_invoice_id.get(invoice["Rechnungs-ID"], [])
@@ -110,8 +136,17 @@ def export_invoice_review_to_excel() -> BytesIO:
             for pos in positions:
                 pos_values = [_format_export_value(pos.get(column), column) for column in INVOICE_POS_REVIEW_COLUMNS]
                 _write_row(worksheet, current_row, 2, pos_values, border=data_border, alignment=left_alignment)
-                for column_index in (2, 6, 7, 8):
+                for column_index in (2, 6, 7, 8, 9):
                     worksheet.cell(row=current_row, column=column_index).alignment = right_alignment
+                _apply_calculated_fill(
+                    worksheet,
+                    current_row,
+                    2,
+                    INVOICE_POS_REVIEW_COLUMNS,
+                    pos.get("_calculated_fields"),
+                    POSITION_CALCULATED_COLUMN_BY_FIELD,
+                    calculated_fill,
+                )
                 current_row += 1
 
     _fit_columns(worksheet)
@@ -122,8 +157,10 @@ def export_invoice_review_to_excel() -> BytesIO:
     return output
 
 
-def _invoice_review_query() -> str:
-    return """
+def _invoice_review_query(client_id: int | None = None) -> tuple[str, tuple[Any, ...]]:
+    where_clause = "WHERE i.client_id = %s" if client_id is not None else ""
+    params: tuple[Any, ...] = (client_id,) if client_id is not None else ()
+    return f"""
         SELECT
             i.id AS "Rechnungs-ID",
             i.invoice_number AS "Rechnungsnummer",
@@ -138,6 +175,7 @@ def _invoice_review_query() -> str:
             i.gesamt_netto AS "Netto",
             i.tva AS "USt",
             i.gesamtbetrag AS "Brutto",
+            i.calculated_fields AS "_calculated_fields",
             CASE
                 WHEN COALESCE(v.failed_count, 0) = 0 THEN 'ok'
                 ELSE 'review_required'
@@ -151,25 +189,31 @@ def _invoice_review_query() -> str:
             FROM validation_results
             GROUP BY invoice_id
         ) v ON v.invoice_id = i.id
+        {where_clause}
         ORDER BY i.id
-    """
+    """, params
 
 
-def _invoice_review_pos_query() -> str:
-    return """
+def _invoice_review_pos_query(client_id: int | None = None) -> tuple[str, tuple[Any, ...]]:
+    where_clause = "WHERE i.client_id = %s" if client_id is not None else ""
+    params: tuple[Any, ...] = (client_id,) if client_id is not None else ()
+    return f"""
         SELECT
             i.id AS "Rechnungs-ID",
-            i.invoice_number AS "Rechnungsnummer",
+            p.description AS "ArtikelNr. / Beschreibung",
             c.name_original AS "Kunde/Lieferant",
             i.invoice_date AS "Belegdatum",
             p.pos_number AS "Position",
             p.gesamt_netto AS "Positions-Netto",
-            p.gesamtpreis AS "Positions-Brutto"
+            p.tva AS "Positions-USt",
+            p.gesamtpreis AS "Positions-Brutto",
+            p.calculated_fields AS "_calculated_fields"
         FROM invoice_pos p
         JOIN invoices i ON i.id = p.invoice_id
         JOIN clients c ON c.id = i.client_id
+        {where_clause}
         ORDER BY p.invoice_id, p.pos_number
-    """
+    """, params
 
 
 def _format_german_decimal(value: Any) -> str:
@@ -184,7 +228,7 @@ def _format_export_value(value: Any, column: str) -> Any:
         return ""
     if column in {"Belegdatum"}:
         return _format_date(value)
-    if column in {"Netto", "USt", "Brutto", "Positions-Netto", "Positions-Brutto"}:
+    if column in {"Netto", "USt", "Brutto", "Positions-Netto", "Positions-USt", "Positions-Brutto"}:
         return _format_german_decimal(value)
     return value
 
@@ -224,6 +268,35 @@ def _write_row(
             cell.border = border
         if alignment is not None:
             cell.alignment = alignment
+
+
+def _apply_calculated_fill(
+    worksheet,
+    row: int,
+    start_column: int,
+    visible_columns: list[str],
+    calculated_fields: Any,
+    column_by_field: dict[str, str],
+    fill: PatternFill,
+) -> None:
+    calculated_columns = {
+        column_by_field[field]
+        for field in _calculated_field_names(calculated_fields)
+        if field in column_by_field
+    }
+    for offset, column_name in enumerate(visible_columns):
+        if column_name in calculated_columns:
+            worksheet.cell(row=row, column=start_column + offset).fill = fill
+
+
+def _calculated_field_names(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str):
+        return [value]
+    return []
 
 
 def _fit_columns(worksheet) -> None:
